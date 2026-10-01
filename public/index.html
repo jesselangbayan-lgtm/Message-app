@@ -102,7 +102,7 @@
                     <button onclick="backToFriends()" class="text-slate-500 hover:text-slate-700 font-medium">← Back</button>
                     <div>
                         <div id="chat-friend-name" class="font-semibold text-sm text-slate-900">Friend</div>
-                        <div id="chat-status" class="text-[11px] text-emerald-600">Connected</div>
+                        <div id="chat-status" class="text-[11px] text-amber-600">Connecting...</div>
                     </div>
                 </div>
             </div>
@@ -163,7 +163,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             try {
                 cryptoKey = await deriveKey(pwd);
-                
                 peer = new Peer({ debug: 2 });
 
                 peer.on('open', (id) => {
@@ -199,17 +198,34 @@ function setupConnection(conn) {
     conn.on('open', () => {
         activeConn = conn;
         activeFriendId = conn.peer;
+        if (activeFriendId === conn.peer) {
+            document.getElementById('chat-status').textContent = 'Connected';
+            document.getElementById('chat-status').className = 'text-[11px] text-emerald-600';
+        }
         if (!friends[conn.peer]) { 
             friends[conn.peer] = { name: conn.peer.slice(0, 8) }; 
             saveFriends(); 
         }
-        openChat(conn.peer);
     });
+
     conn.on('data', async (data) => {
         try { 
-            appendMessage(await decryptMessage(data), 'incoming'); 
+            const decrypted = await decryptMessage(data);
+            saveMessageHistory(conn.peer, decrypted, 'incoming');
+            if (activeFriendId === conn.peer) {
+                appendMessageUI(decrypted, 'incoming');
+            }
         } catch(e) { 
-            appendMessage('[Decryption Error]', 'incoming'); 
+            if (activeFriendId === conn.peer) {
+                appendMessageUI('[Decryption Error]', 'incoming');
+            }
+        }
+    });
+
+    conn.on('close', () => {
+        if (activeFriendId === conn.peer) {
+            document.getElementById('chat-status').textContent = 'Offline / Connecting...';
+            document.getElementById('chat-status').className = 'text-[11px] text-amber-600';
         }
     });
 }
@@ -223,7 +239,7 @@ function renderFriends() {
     const list = document.getElementById('friends-list'), ids = Object.keys(friends);
     document.getElementById('friend-count').textContent = ids.length;
     if (ids.length === 0) return list.innerHTML = `<div class="p-8 text-center text-sm text-slate-400">No friends yet.</div>`;
-    list.innerHTML = ids.map(id => `<div class="flex items-center justify-between p-3"><span class="font-mono text-xs">${id}</span><button onclick="connectToFriend('${id}')" class="bg-emerald-600 text-white text-xs px-3 py-1 rounded">Chat</button></div>`).join('');
+    list.innerHTML = ids.map(id => `<div class="flex items-center justify-between p-3"><span class="font-mono text-xs">${id}</span><button onclick="openChat('${id}')" class="bg-emerald-600 text-white text-xs px-3 py-1 rounded">Chat</button></div>`).join('');
 }
 
 function addFriend() {
@@ -235,15 +251,48 @@ function addFriend() {
     }
 }
 
-function connectToFriend(id) {
-    const conn = peer.connect(id);
-    setupConnection(conn);
+function getStorageKey(friendId) {
+    return 'chat_history_' + friendId;
+}
+
+function loadMessageHistory(friendId) {
+    const container = document.getElementById('messages-container');
+    container.innerHTML = '';
+    const history = JSON.parse(localStorage.getItem(getStorageKey(friendId)) || '[]');
+    history.forEach(msg => {
+        appendMessageUI(msg.text, msg.type, false);
+    });
+}
+
+function saveMessageHistory(friendId, text, type) {
+    const key = getStorageKey(friendId);
+    const history = JSON.parse(localStorage.getItem(key) || '[]');
+    history.push({ text, type, time: Date.now() });
+    localStorage.setItem(key, JSON.stringify(history));
 }
 
 function openChat(id) {
     activeFriendId = id;
+    document.getElementById('chat-friend-name').textContent = friends[id] ? friends[id].name : id.slice(0, 8);
     document.getElementById('main-view').classList.add('hidden');
     document.getElementById('chat-view').classList.remove('hidden');
+    
+    loadMessageHistory(id);
+
+    // Attempt connection if not already connected
+    if (!activeConn || activeConn.peer !== id || !activeConn.open) {
+        document.getElementById('chat-status').textContent = 'Connecting...';
+        document.getElementById('chat-status').className = 'text-[11px] text-amber-600';
+        try {
+            const conn = peer.connect(id);
+            setupConnection(conn);
+        } catch(e) {
+            console.log('Connection attempt failed');
+        }
+    } else {
+        document.getElementById('chat-status').textContent = 'Connected';
+        document.getElementById('chat-status').className = 'text-[11px] text-emerald-600';
+    }
 }
 
 function backToFriends() { 
@@ -253,18 +302,31 @@ function backToFriends() {
 
 async function sendMessage() {
     const input = document.getElementById('chat-input'), text = input.value.trim();
-    if (!text || !activeConn) return;
-    activeConn.send(await encryptMessage(text));
-    appendMessage(text, 'outgoing');
+    if (!text || !activeFriendId) return;
+
+    // Save locally immediately so it always goes through and stays in history
+    saveMessageHistory(activeFriendId, text, 'outgoing');
+    appendMessageUI(text, 'outgoing');
     input.value = '';
+
+    // Send over wire if connection is open
+    if (activeConn && activeConn.open && activeConn.peer === activeFriendId) {
+        try {
+            activeConn.send(await encryptMessage(text));
+        } catch(e) {
+            console.error('Failed to send over active connection', e);
+        }
+    }
 }
 
 function handleKey(e) { if (e.key === 'Enter') sendMessage(); }
 
-function appendMessage(text, type) {
+function appendMessageUI(text, type, scroll = true) {
     const c = document.getElementById('messages-container');
     c.innerHTML += `<div class="flex ${type === 'outgoing' ? 'justify-end' : 'justify-start'}"><div class="p-2.5 rounded-xl text-sm ${type === 'outgoing' ? 'bg-emerald-600 text-white' : 'bg-slate-100'}">${text}</div></div>`;
-    c.scrollTop = c.scrollHeight;
+    if (scroll) {
+        c.scrollTop = c.scrollHeight;
+    }
 }
 
 function copyMyId() { 
