@@ -155,12 +155,48 @@ async function startPeer() {
     try {
         cryptoKey = await deriveKey(pwd);
         
+        // Use the reliable public PeerJS cloud signaling service
+        peer = new Peer({
+            debug: 2
+        });
+
+        peer.on('open', (id) => {
+            myPeerId = id;
+            document.getElementById('my-peer-id').textContent = id;
+            document.getElementById('onboard-view').classList.add('hidden');
+            document.getElementById('main-view').classList.remove('hidden');
+            document.getElementById('friends-btn').classList.remove('hidden');
+            document.getElementById('reset-btn').classList.remove('hidden');
+            updateStatus('Online', 'bg-emerald-500');
+            renderFriends();
+        });
+
+        peer.on('error', (err) => {
+            console.error(err);
+            alert('Connection error: ' + err.type);
+            btn.textContent = 'Create Friend Code & Go Online';
+            btn.disabled = false;
+        });
+
+        peer.on('connection', (conn) => setupConnection(conn));
+    } catch (e) {
+        console.error(e);
+        alert('Failed to start.');
+        btn.textContent = 'Create Friend Code & Go Online';
+        btn.disabled = false;
+}
+    }
+    
+    const btn = document.getElementById('start-btn');
+    btn.textContent = 'Connecting...';
+    btn.disabled = true;
+
+    try {
+        cryptoKey = await deriveKey(pwd);
+        
         // Initialize PeerJS cleanly using the Render server path
         peer = new Peer({
-            host: window.location.hostname,
-            port: window.location.port || (window.location.protocol === 'https:' ? 443 : 80),
-            path: '/peerjs',
-            secure: window.location.protocol === 'https:'
+            debug: 2
         });
 
         peer.on('open', (id) => {
