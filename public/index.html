@@ -1,3 +1,119 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Encrypted P2P Messenger</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PeerJS CDN -->
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <style>
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    </style>
+</head>
+<body class="h-full bg-slate-50 text-slate-800 flex flex-col font-sans antialiased">
+
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm">
+        <div class="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center text-white shadow-md shrink-0">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg text-slate-900 leading-tight">Encrypted P2P Messenger</h1>
+                    <p class="text-xs text-slate-500 flex items-center gap-1.5">
+                        <span id="status-dot" class="w-2 h-2 rounded-full bg-amber-500 inline-block"></span>
+                        <span id="status-text">Offline</span>
+                    </p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <button id="friends-btn" onclick="showFriendsView()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg font-medium transition hidden">Friends</button>
+                <button id="reset-btn" onclick="fullReset()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg font-medium transition hidden">Reset</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-1 max-w-3xl w-full mx-auto p-4 flex flex-col overflow-hidden">
+        <!-- ONBOARDING -->
+        <div id="onboard-view" class="space-y-5 my-auto py-4">
+            <div class="text-center space-y-2">
+                <h2 class="text-xl font-bold text-slate-900">Create your identity</h2>
+                <p class="text-sm text-slate-500">This generates a permanent Friend Code others can use to reach you.</p>
+            </div>
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                <div>
+                    <label class="text-xs font-medium text-slate-500">Display Name (optional)</label>
+                    <input type="text" id="display-name" placeholder="e.g. Alex" maxlength="20" class="mt-1 w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </div>
+                <div>
+                    <label class="text-xs font-medium text-slate-500">Shared Password <span class="text-red-500">*</span></label>
+                    <div class="relative mt-1">
+                        <input type="password" id="shared-password" placeholder="Min 8 characters – both must use same" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none pr-12" autocomplete="off">
+                        <button type="button" onclick="togglePasswordVisibility()" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                            <svg id="eye-icon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <button type="button" id="start-btn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-3 rounded-xl shadow transition flex items-center justify-center gap-2">
+                    Create Friend Code & Go Online
+                </button>
+            </div>
+        </div>
+
+        <!-- MAIN / FRIENDS -->
+        <div id="main-view" class="hidden flex-1 flex flex-col space-y-4">
+            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <div class="text-xs font-semibold text-emerald-600 uppercase tracking-wider mb-2">My Friend Code</div>
+                <div class="flex items-center gap-3">
+                    <div id="my-peer-id" class="flex-1 text-lg font-mono font-bold text-slate-900 tracking-wider truncate">—</div>
+                    <button onclick="copyMyId()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg font-medium">Copy</button>
+                </div>
+            </div>
+            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                <div class="text-xs font-semibold text-emerald-600 uppercase tracking-wider">Add Friend</div>
+                <div class="flex gap-2">
+                    <input type="text" id="friend-code-input" placeholder="Enter their Friend Code" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                    <button onclick="addFriend()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-sm font-medium shrink-0">Add</button>
+                </div>
+            </div>
+            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex-1 flex flex-col min-h-0">
+                <div class="px-4 py-3 border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    Friends (<span id="friend-count">0</span>)
+                </div>
+                <div id="friends-list" class="flex-1 overflow-y-auto divide-y divide-slate-100">
+                    <div class="p-8 text-center text-sm text-slate-400">No friends yet.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CHAT -->
+        <div id="chat-view" class="hidden flex-1 flex flex-col h-full bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div class="bg-slate-50 border-b border-slate-200 p-3 px-4 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <button onclick="backToFriends()" class="text-slate-500 hover:text-slate-700 font-medium">← Back</button>
+                    <div>
+                        <div id="chat-friend-name" class="font-semibold text-sm text-slate-900">Friend</div>
+                        <div id="chat-status" class="text-[11px] text-emerald-600">Connected</div>
+                    </div>
+                </div>
+            </div>
+            <div id="messages-container" class="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-50/50"></div>
+            <div class="p-3 bg-white border-t border-slate-200 flex items-center gap-2">
+                <input type="text" id="chat-input" onkeydown="handleKey(event)" placeholder="Type a message…" class="flex-1 bg-slate-100 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none" autocomplete="off">
+                <button onclick="sendMessage()" class="bg-emerald-600 text-white px-4 py-3 rounded-xl font-medium">Send</button>
+            </div>
+        </div>
+    </main>
+
 <script>
 let peer = null, myPeerId = null, cryptoKey = null, activeConn = null, activeFriendId = null;
 let friends = JSON.parse(localStorage.getItem('p2p-friends') || '{}');
@@ -32,7 +148,6 @@ async function decryptMessage(b64) {
     return new TextDecoder().decode(plain);
 }
 
-// Direct event listener so the button works reliably
 document.addEventListener('DOMContentLoaded', () => {
     const startBtn = document.getElementById('start-btn');
     if (startBtn) {
@@ -164,3 +279,5 @@ function showFriendsView() {
 
 function fullReset() { location.reload(); }
 </script>
+</body>
+</html>
